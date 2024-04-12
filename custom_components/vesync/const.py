@@ -34,6 +34,7 @@ VS_AIRFRYER_TYPES = ["VeSyncAirFryer158"]
 
 
 DEV_TYPE_TO_HA = {
+    "C37-LY-S008": "bulb-multicolor",
     "ESL100": "bulb-dimmable",
     "ESL100CW": "bulb-tunable-white",
     "ESO15-TB": "outlet",

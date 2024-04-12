@@ -4,8 +4,8 @@ import logging
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
-    COLOR_MODE_BRIGHTNESS,
-    COLOR_MODE_COLOR_TEMP,
+    ATTR_HS_COLOR,
+    ColorMode,
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -50,6 +50,8 @@ def _setup_entities(devices, async_add_entities, coordinator):
     """Check if device is online and add entity."""
     entities = []
     for dev in devices:
+        if DEV_TYPE_TO_HA.get(dev.device_type) in ("bulb-multicolor",):
+            entities.append(VeSyncMulticolorLightHA(dev, coordinator))
         if DEV_TYPE_TO_HA.get(dev.device_type) in ("walldimmer", "bulb-dimmable"):
             entities.append(VeSyncDimmableLightHA(dev, coordinator))
         if DEV_TYPE_TO_HA.get(dev.device_type) in ("bulb-tunable-white",):
@@ -102,7 +104,7 @@ class VeSyncBaseLight(VeSyncDevice, LightEntity):
         """Turn the device on."""
         attribute_adjustment_only = False
         # set white temperature
-        if self.color_mode in (COLOR_MODE_COLOR_TEMP,) and ATTR_COLOR_TEMP in kwargs:
+        if self.color_mode in (ColorMode.COLOR_TEMP,) and ATTR_COLOR_TEMP in kwargs:
             # get white temperature from HA data
             color_temp = int(kwargs[ATTR_COLOR_TEMP])
             # ensure value between min-max supported Mireds
@@ -122,7 +124,7 @@ class VeSyncBaseLight(VeSyncDevice, LightEntity):
             attribute_adjustment_only = True
         # set brightness level
         if (
-            self.color_mode in (COLOR_MODE_BRIGHTNESS, COLOR_MODE_COLOR_TEMP)
+            self.color_mode in (ColorMode.BRIGHTNESS, ColorMode.COLOR_TEMP)
             and ATTR_BRIGHTNESS in kwargs
         ):
             # get brightness from HA data
@@ -147,12 +149,12 @@ class VeSyncDimmableLightHA(VeSyncBaseLight, LightEntity):
     @property
     def color_mode(self):
         """Set color mode for this entity."""
-        return COLOR_MODE_BRIGHTNESS
+        return ColorMode.BRIGHTNESS
 
     @property
     def supported_color_modes(self):
         """Flag supported color_modes (in an array format)."""
-        return [COLOR_MODE_BRIGHTNESS]
+        return [ColorMode.BRIGHTNESS]
 
 
 class VeSyncTunableWhiteLightHA(VeSyncBaseLight, LightEntity):
@@ -202,12 +204,12 @@ class VeSyncTunableWhiteLightHA(VeSyncBaseLight, LightEntity):
     @property
     def color_mode(self):
         """Set color mode for this entity."""
-        return COLOR_MODE_COLOR_TEMP
+        return ColorMode.COLOR_TEMP
 
     @property
     def supported_color_modes(self):
         """Flag supported color_modes (in an array format)."""
-        return [COLOR_MODE_COLOR_TEMP]
+        return [ColorMode.COLOR_TEMP]
 
 
 class VeSyncNightLightHA(VeSyncDimmableLightHA):
@@ -273,3 +275,96 @@ class VeSyncNightLightHA(VeSyncDimmableLightHA):
             self.device.set_night_light("off")
         else:
             self.device.set_night_light_brightness(0)
+
+
+class VeSyncMulticolorLightHA(VeSyncTunableWhiteLightHA, LightEntity):
+    """Representation of a VeSync Multicolor Light device."""
+
+    def __init_(self, light, coordinator):
+        """Initialize the VeSync light device."""
+        super().__init__(light, coordinator)
+
+    @property
+    def supported_color_modes(self):
+        """Flag supported color_modes (in an array format)."""
+        return [ColorMode.HS, ColorMode.COLOR_TEMP]
+
+    @property
+    def color_mode(self):
+        if self.device.color_mode.lower() in ["white"]:
+            return ColorMode.COLOR_TEMP
+        return ColorMode.HS
+
+    @property
+    def hs_color(self) -> tuple[float, float] | None:
+        """Return the current color mode."""
+        color_hue = None
+        color_saturation = None
+        try:
+            color_hue = self.device.color_hue
+            color_saturation = self.device.color_saturation
+        except ValueError:
+            return None
+        return (color_hue, color_saturation)
+
+    @property
+    def brightness(self) -> int | None:
+        """Get light brightness."""
+        # If Color Mode = COLOR use HSV value
+        if self.color_mode == ColorMode.HS:
+            return _vesync_brightness_to_ha(self.device.color_value)
+        return _vesync_brightness_to_ha(self.device.brightness)
+
+    def turn_on(self, **kwargs) -> None:
+        """Turn the device on, and adjust attributes."""
+        attribute_adjustments = False
+        # set color hue + saturation
+        if (
+            self.color_mode in (ColorMode.COLOR_TEMP, ColorMode.HS)
+            and ATTR_HS_COLOR in kwargs
+        ):
+            # flag attribute_adjustment_only, so it doesn't turn_on the device twice
+            attribute_adjustments = True
+            # get HS color from HA data
+            color_hue = float(kwargs[ATTR_HS_COLOR][0])
+            color_saturation = int(round(kwargs[ATTR_HS_COLOR][1]))
+            self.device.set_hsv(hue=color_hue, saturation=color_saturation)
+
+        # set white temperature
+        if (
+            self.color_mode in (ColorMode.COLOR_TEMP, ColorMode.HS)
+            and ATTR_COLOR_TEMP in kwargs
+        ):
+            # flag attribute_adjustment_only, so it doesn't turn_on the device twice
+            attribute_adjustments = True
+            # get white temperature from HA data
+            color_temp = int(kwargs[ATTR_COLOR_TEMP])
+            # ensure value between min-max supported Mireds
+            color_temp = max(self.min_mireds, min(color_temp, self.max_mireds))
+            # convert Mireds to Percent value that api expects
+            color_temp = round(
+                ((color_temp - self.min_mireds) / (self.max_mireds - self.min_mireds))
+                * 100
+            )
+            # flip cold/warm to what pyvesync api expects
+            color_temp = 100 - color_temp
+            # ensure value between 0-100
+            color_temp = max(0, min(color_temp, 100))
+            # call pyvesync library api method to set color_temp
+            self.device.set_color_temp(color_temp)
+        # set brightness level
+        if (
+            self.color_mode
+            in (ColorMode.BRIGHTNESS, ColorMode.COLOR_TEMP, ColorMode.HS)
+            and ATTR_BRIGHTNESS in kwargs
+        ):
+            # flag attribute_adjustment_only, so it doesn't turn_on the device twice
+            attribute_adjustments = True
+            # get brightness from HA data
+            brightness = _ha_brightness_to_vesync(kwargs[ATTR_BRIGHTNESS])
+            self.device.set_brightness(brightness)
+        # check flag if should skip sending the basic turn_on command
+        if attribute_adjustments:
+            return
+        # send turn_on command to pyvesync library
+        self.device.turn_on()
