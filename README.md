@@ -1,10 +1,11 @@
 
-# **Important message**
-> 
-> This a fork of the existing archived project created by vlebourl. Please contribute here.
+[![](https://img.shields.io/github/release/AndreaTomatis/custom_vesync/all.svg?style=for-the-badge)](https://GitHub.com/AndreaTomatis/custom_vesync/releases/)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/hacs/integration)
+[![](https://img.shields.io/github/license/AndreaTomatis/custom_vesync?style=for-the-badge)](LICENSE)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub release](https://img.shields.io/github/v/release/vlebourl/custom_vesync.svg)](https://GitHub.com/vlebourl/custom_vesync/releases/)
+# **Important message**
+
+This a fork of the existing archived project created by vlebourl. Please contribute here.
 
 # VeSync custom component for Home Assistant
 
