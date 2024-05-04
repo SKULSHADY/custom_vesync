@@ -298,14 +298,20 @@ class VeSyncMulticolorLightHA(VeSyncTunableWhiteLightHA, LightEntity):
     @property
     def hs_color(self) -> tuple[float, float] | None:
         """Return the current color mode."""
-        color_hue = None
-        color_saturation = None
+        # get value from pyvesync library api,
+        color_value_hsv = None
         try:
-            color_hue = self.device.color_hue
-            color_saturation = self.device.color_saturation
+            # get hsv named tuple from pyvesync library (hue, sat, value)
+            color_value_hsv = self.device.color_value_hsv
         except ValueError:
+            # deal if any unexpected/non numeric value
+            _LOGGER.debug(
+                "VeSync - received unexpected 'color_value_hsv' value "
+                "from pyvesync api: %s",
+                str(color_value_hsv),
+            )
             return None
-        return (color_hue, color_saturation)
+        return (color_value_hsv.hue, color_value_hsv.saturation)
 
     @property
     def brightness(self) -> int | None:
